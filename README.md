@@ -31,13 +31,6 @@ A script that automates deletion of posts and replies on X (formerly Twitter). I
    - Click the "Console" tab in Developer Tools
    - Clear any red error messages (click 🚫 or press `Ctrl + L`)
 
-### Configuration
-1. Find this line in the script:
-   ```javascript
-   const USERNAME = '@yourusername';  // Change this to your X username
-   ```
-2. Replace `@yourusername` with your X username (keep the `@` symbol)
-
 ### Running the Script
 1. Copy the entire script
 2. Paste it into the console
