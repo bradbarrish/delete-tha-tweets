@@ -1,17 +1,18 @@
 function deleteAllPosts() {
     // Configuration
-    const CLICK_DELAY = 3000; // Delay between clicks to allow UI to respond
-    const RETRY_DELAY = 4000; // Delay before retrying in case of failure
+    const CLICK_DELAY = 3000;
+    const RETRY_DELAY = 4000;
+    const MENU_DELAY = 2000;
     const MAX_RETRIES = 3;
 
     let retryCount = 0;
 
     // Helper function to safely click visible elements
     const safeClick = (element) => {
-        if (element && element.offsetParent !== null) { // Check visibility
+        if (element && element.offsetParent !== null) {
             try {
                 element.click();
-                console.log("Clicked element with text:", element.textContent);
+                console.log("Clicked element with text:", element.textContent || "no text");
                 return true;
             } catch (e) {
                 console.log("Click failed:", e);
@@ -22,22 +23,105 @@ function deleteAllPosts() {
         return false;
     };
 
+    // Find the next post menu button
+    const findNextPostMenuButton = () => {
+        const menuButtons = document.querySelectorAll('[data-testid="caret"]');
+        for (let button of menuButtons) {
+            const postContainer = button.closest('article');
+            if (postContainer && postContainer.offsetParent !== null) {
+                return { button, postContainer };
+            }
+        }
+        return { button: null, postContainer: null };
+    };
+
+    // Find repost button in post
+    const findRepostButton = (postContainer) => {
+        // Try all possible selectors for the repost button
+        const buttonSelectors = [
+            // Direct repost button selector
+            '[data-testid="retweet"]',
+            // Group containing interaction buttons
+            '[role="group"] [role="button"]',
+            // Look for any button containing repost text
+            'div[role="button"]:has(div[dir="ltr"])'
+        ];
+
+        for (const selector of buttonSelectors) {
+            const buttons = postContainer.querySelectorAll(selector);
+            // Usually repost is the second button in the interaction group
+            if (buttons.length >= 2) {
+                return buttons[1]; // Return the second button (typically repost)
+            } else if (buttons.length === 1) {
+                return buttons[0];
+            }
+        }
+
+        return null;
+    };
+
     // Click the menu button (three dots)
     const clickMenu = () => {
-        const menuButton = document.querySelector('[data-testid="caret"]');
-        return safeClick(menuButton);
+        const { button } = findNextPostMenuButton();
+        return safeClick(button);
     };
 
-    // Click the delete option in the menu
-    const clickDelete = () => {
-        const deleteButton = Array.from(document.querySelectorAll('*'))
-            .find(el => el.textContent.trim() === 'Delete' && 
-                  (el.getAttribute('role') === 'menuitem' || el.closest('[role="menuitem"]')));
+    // Check if post is a repost and handle accordingly
+    const clickDeleteOrUndoRepost = () => {
+        const { button, postContainer } = findNextPostMenuButton();
+        if (!postContainer) return false;
+
+        // Check if it's a repost by looking for the text
+        const isRepost = postContainer.textContent.includes('You reposted');
+
+        if (!isRepost) {
+            const deleteButton = Array.from(document.querySelectorAll('*'))
+                .find(el => el.textContent.trim() === 'Delete' && 
+                      (el.getAttribute('role') === 'menuitem' || el.closest('[role="menuitem"]')));
+
+            if (deleteButton) {
+                console.log("Delete option found. Attempting to delete post...");
+                return safeClick(deleteButton);
+            }
+        } else {
+            console.log("Repost detected. Attempting to undo repost...");
+            const repostButton = findRepostButton(postContainer);
+            if (repostButton) {
+                console.log("Found repost button, attempting to click...");
+                if (safeClick(repostButton)) {
+                    setTimeout(() => {
+                        if (findAndClickUndoRepost()) {
+                            console.log("Repost undone successfully");
+                            setTimeout(runDelete, RETRY_DELAY);
+                        } else {
+                            handleError("Couldn't find undo repost option");
+                        }
+                    }, MENU_DELAY);
+                    return true;
+                }
+            }
+            handleError("Couldn't find repost button");
+        }
+        return false;
+    };
+
+    // Find and click undo repost option
+    const findAndClickUndoRepost = () => {
+        const undoRepostButton = Array.from(document.querySelectorAll('[role="menuitem"]'))
+            .find(el => {
+                const text = el.textContent.toLowerCase().trim();
+                return text.includes('undo repost') || text.includes('unretweet');
+            });
         
-        return safeClick(deleteButton || deleteButton?.closest('[role="menuitem"]'));
+        if (undoRepostButton) {
+            console.log("Undo repost option found. Attempting to undo repost...");
+            return safeClick(undoRepostButton);
+        }
+        console.log("Undo repost option not found in the menu.");
+        return false;
     };
 
-    // Click the confirm delete button in the modal
+    // Click the confirm delete button in modal - using the working version
     const confirmDelete = () => {
         const confirmButton = Array.from(document.querySelectorAll('*'))
             .find(el => {
@@ -53,9 +137,7 @@ function deleteAllPosts() {
             return safeClick(confirmButton?.closest('[role="button"]') || confirmButton);
         } else {
             console.log("Confirm delete button not found in modal. Checking for alternative methods...");
-            
-            // Alternative method if modal delete button is not recognized
-            const fallbackButton = document.querySelector('[data-testid="confirmationSheetConfirm"]'); // Known Twitter modal button
+            const fallbackButton = document.querySelector('[data-testid="confirmationSheetConfirm"]');
             return safeClick(fallbackButton);
         }
     };
@@ -69,21 +151,13 @@ function deleteAllPosts() {
                 console.log("Menu clicked successfully");
                 
                 setTimeout(() => {
-                    console.log("Attempting to click delete option...");
-                    if (clickDelete()) {
-                        console.log("Delete option clicked successfully");
-                        
+                    if (clickDeleteOrUndoRepost()) {
                         setTimeout(() => {
-                            console.log("Attempting to confirm deletion...");
                             if (confirmDelete()) {
                                 console.log("Successfully deleted post");
                                 setTimeout(runDelete, RETRY_DELAY);
-                            } else {
-                                handleError("Couldn't find confirm button in modal");
                             }
                         }, CLICK_DELAY);
-                    } else {
-                        handleError("Couldn't find delete option");
                     }
                 }, CLICK_DELAY);
             } else {
